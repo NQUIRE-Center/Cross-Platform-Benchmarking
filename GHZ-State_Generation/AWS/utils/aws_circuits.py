@@ -1,5 +1,6 @@
 from braket.circuits import Circuit
 import numpy as np
+import math
 
 def create_lineal_ghz_circuit_2(num_qubits):
     ghz_circuit = Circuit()
@@ -44,7 +45,7 @@ def create_exponential_ghz_circuit_2(num_qubits):
     return ghz_circuit
 
 
-def create_ghz_circuit(num_qubits, mode="lineal"):
+def create_ghz_circuit(num_qubits, mode="lineal", path=None):
     """
     Create a GHZ (Greenberger-Horne-Zeilinger) state circuit for the specified number of qubits.
 
@@ -61,8 +62,64 @@ def create_ghz_circuit(num_qubits, mode="lineal"):
         ghz_circuit = create_lineal_ghz_circuit_2(num_qubits)
     elif mode == "log_v2":
         ghz_circuit = create_exponential_ghz_circuit_2(num_qubits)
+    elif mode == "native":
+        ghz_circuit = create_physical_ghz(path)
     else:
         raise ValueError("Invalid mode. Choose 'lineal_v2' or 'log_v2'.")
     
 
     return ghz_circuit
+
+def add_native_h(circuit, qubit):
+    circuit.rz(qubit, math.pi / 2)
+    circuit.rx(qubit, math.pi / 2)
+    circuit.rz(qubit, -math.pi / 2)
+
+
+def add_native_cnot(circuit, control, target):
+    add_native_h(circuit, target)
+    circuit.cz(control, target)
+    add_native_h(circuit, target)
+
+def create_physical_ghz(path):
+    num_qubits = len(path)
+
+    physical = Circuit()
+
+    middle = num_qubits // 2
+    add_native_h(physical, path[middle])
+
+    entangled = [middle]
+
+    while True:
+        new_entangled = []
+
+        for q in entangled:
+            if (
+                q - 1 >= 0
+                and q - 1 not in entangled
+                and q - 1 not in new_entangled
+            ):
+                add_native_cnot(
+                    physical, path[q], path[q - 1]
+                )
+                new_entangled.append(q - 1)
+
+            if (
+                q + 1 < num_qubits
+                and q + 1 not in entangled
+                and q + 1 not in new_entangled
+            ):
+                add_native_cnot(
+                    physical, path[q], path[q + 1]
+                )
+                new_entangled.append(q + 1)
+
+        if not new_entangled:
+            break
+
+        entangled.extend(new_entangled)
+
+    verbatim = Circuit().add_verbatim_box(physical)
+
+    return verbatim

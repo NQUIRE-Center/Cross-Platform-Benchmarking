@@ -5,6 +5,7 @@ from datetime import datetime
 
 from utils.aws_benchmark import required_shots_witnesses, run_GHZ_Witnesses_experiment, sample_ghz_stabilizer, observable_from_string, compute_l, run_GHZ_RF_experiment
 from utils.aws_circuits import create_ghz_circuit
+from utils.custom_transpiler import build_cepheus_calibration_graph, find_best_physical_chain
 
 from braket.aws import AwsDevice
 #from QCentroidLoaders import BraketLoader
@@ -14,7 +15,7 @@ import logging
 #logger = logging.getLogger("qcentroid-user-log")
 
 class GHZExperiment():
-    def __init__(self, num_qubits, circuit, l, m_i, backend, min_shots=1):
+    def __init__(self, num_qubits, circuit, l, m_i, backend, min_shots=1, custom_transpiler=False, qpu_size=0):
         """
         Docstring for __init__
         :param num_qubits: Number of qubits in the GHZ state
@@ -22,16 +23,30 @@ class GHZExperiment():
         :param l: Parameter for the experiment
         :param m_i: Number of shots for the experiment
         :param backend: Backend for running the experiment
+        :param custom_transpiler: Whether to use a custom transpiler
         """ 
         self.num_qubits = num_qubits
-        self.circuit = circuit
+        self.circuit = circuit[0]
+        self.path = circuit[1]
+        self.qpu_size = qpu_size
         self.l = l
         self.m_i = m_i
         self.backend = backend
         self.min_shots = min_shots
+        self.custom_transpiler = custom_transpiler
     def prepare_experiment(self):
 
         samples = sample_ghz_stabilizer(self.num_qubits, self.l)
+        if self.custom_transpiler:
+            # Use self.path to transpile the observables to the physical qubits
+            identity = self.qpu_size*'I'
+            for sample in samples:
+                p, sign = sample
+                new_p = list(identity)
+                for i, qubit in enumerate(self.path):
+                    new_p[qubit] = p[i]
+                sample[0] = ''.join(new_p)
+
         observables = [observable_from_string(p) for (p, _) in samples]
         signs = np.array([sign for (_, sign) in samples])
 
@@ -41,65 +56,74 @@ class GHZExperiment():
     def run_experiment(self):
         return run_GHZ_RF_experiment(circuit=self.circuit, num_qubits=self.num_qubits, observables=self.observables, signs=self.signs, backend=self.backend, min_shots=self.min_shots)
 
-def getBestGHZCircuitsPerQPU(backend_architecture, start_qubits=2, maximo=2):
+def getBestGHZCircuitsPerQPU(backend_architecture, start_qubits=2, max_qubits=2, native_gates=False, graph=None):
     """
     Transpiles and selects the best circuits according to the backend calibration.
 
     Args:
         backend_architecture (str): Backend architecture, which can be "lineal" or "fully-connected"
-        qubits (int): Number of qubits
-        calibrations (dict): Backend calibrations
-        limit (int): Maximum number of circuits to select
+        start_qubits (int): Starting number of qubits
+        max_qubits (int): Maximum number of qubits
+        native_gates (bool): Whether to use native gates
 
     Returns:
         List[QuantumCircuit]: Optimized transpiled circuits
     """
-
-    if backend_architecture == "lineal":
-        best_strategy = "lineal_v2"
-    elif backend_architecture == "fully-connected":
-        best_strategy = "log_v2"
+    if native_gates:
+        best_strategy = "native"
+    else:
+        if backend_architecture == "lineal":
+            best_strategy = "lineal_v2"
+        elif backend_architecture == "fully-connected":
+            best_strategy = "log_v2"
 
     circuits = {}
 
-    for i in range(start_qubits, maximo+1):
-        circuits[i] = create_ghz_circuit(i, mode=best_strategy)
+    for i in range(start_qubits, max_qubits+1):
+        path, cost = find_best_physical_chain(
+            graph,
+            num_qubits=i,
+        )
+        circuits[i] = [create_ghz_circuit(i, mode=best_strategy, path=path), path]
 
     return circuits
 
-def runExperiments(backend_arn, backend_architecture, numero_qubits_inicial, numero_maximo_qubits, epsilon, delta, min_shots=1):
+def runExperiments(backend_arn, backend_architecture, smaller_size, max_qubits, epsilon, delta, min_shots=1, custom_transpiler=False):
     # Log the start of the experiment (backend, qubits, epsilon, delta)
-    #logger.info(f"Backend: {backend_arn}, Qubits: {numero_qubits_inicial}, Epsilon: {epsilon}, Delta: {delta}")
-    print(f"Backend: {backend_arn}, Qubits: {numero_qubits_inicial}, Epsilon: {epsilon}, Delta: {delta}")
+    #logger.info(f"Backend: {backend_arn}, Qubits: {smaller_size}, Epsilon: {epsilon}, Delta: {delta}")
+    print(f"Backend: {backend_arn}, Qubits: {smaller_size}, Epsilon: {epsilon}, Delta: {delta}")
     backend = AwsDevice(backend_arn)
     #backend = BraketLoader.get_target()
-    backend_qubits = numero_maximo_qubits
     backend_properties = backend.properties
+    qpu_size = backend_properties.paradigm.qubitCount
+
 
     start_date = datetime.now()
     start_date_str = start_date.strftime("%Y%m%d_%H%M%S")
 
-    maximo = numero_maximo_qubits
+    graph = build_cepheus_calibration_graph(
+        backend_properties,
+        total_qubits=max_qubits,
+    )
 
-    best_circuits = getBestGHZCircuitsPerQPU(backend_architecture=backend_architecture, start_qubits=numero_qubits_inicial, maximo=maximo)
+    best_circuits = getBestGHZCircuitsPerQPU(backend_architecture=backend_architecture, start_qubits=smaller_size, max_qubits=max_qubits, native_gates=custom_transpiler, graph=graph)
 
     experiments = {}
-    smaller_size = numero_qubits_inicial
-    for num_qubits in range(smaller_size, maximo + 1):
+    for num_qubits in range(smaller_size, max_qubits + 1):
         # Save the circuit
         circuit = best_circuits[num_qubits]
         
         l = compute_l(epsilon, delta)
         m_i = None # m_i is not needed for the RF benchmark, but we keep it as a parameter for simplicity
-        experiment = GHZExperiment(num_qubits, circuit, l, m_i, backend, min_shots=min_shots)
+        experiment = GHZExperiment(num_qubits, circuit, l, m_i, backend, min_shots=min_shots, custom_transpiler=custom_transpiler, qpu_size=qpu_size)
         experiment.prepare_experiment()
         experiments[num_qubits] = experiment
     
-    num_qubits = numero_qubits_inicial - 1
+    num_qubits = smaller_size - 1
     results_to_save = []
 
     try:
-        max_idx = maximo
+        max_idx = max_qubits
         min_idx = smaller_size
         idx = int((max_idx+min_idx) // 2)
         end = False
