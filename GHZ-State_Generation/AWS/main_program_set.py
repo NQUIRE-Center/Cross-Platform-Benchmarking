@@ -101,10 +101,13 @@ def runExperiments(backend_arn, backend_architecture, smaller_size, max_qubits, 
     start_date = datetime.now()
     start_date_str = start_date.strftime("%Y%m%d_%H%M%S")
 
-    graph = build_cepheus_calibration_graph(
-        backend_properties,
-        total_qubits=max_qubits,
-    )
+    if custom_transpiler:
+        graph = build_cepheus_calibration_graph(
+            backend_properties,
+            total_qubits=max_qubits,
+        )
+    else:
+        graph = None
 
     best_circuits = getBestGHZCircuitsPerQPU(backend_architecture=backend_architecture, start_qubits=smaller_size, max_qubits=max_qubits, native_gates=custom_transpiler, graph=graph)
 
