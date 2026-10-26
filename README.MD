@@ -8,8 +8,7 @@ The repository is structured as a benchmark suite, with each maintained platform
 
 ## Repository layout
 
-- [GHZ-State Generation](./GHZ-State_Generation) – main benchmark suite for GHZ-state generation experiments.
-- [CV_and_BiRB](./CV_and_BiRB) – additional benchmarking work that is still being organized.
+- [GHZ-State Generation](./GHZ-State_Generation) – main benchmark suite for GHZ-state generation experiments. 
 
 ## Quick start
 
