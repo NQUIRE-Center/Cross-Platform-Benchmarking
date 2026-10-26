@@ -34,5 +34,5 @@ This project has been developed with contributions from:
 - Iker Pastor · ORCID: [0000-0002-3068-6248](https://orcid.org/0000-0002-3068-6248)
 - Pablo García Bringas · ORCID: [0000-0003-3594-9534](https://orcid.org/0000-0003-3594-9534)
 - Ane Blázquez García · ORCID: [0000-0002-9100-4941](https://orcid.org/0000-0002-9100-4941)
-- Rubén Peña · ORCID: [0000-0002-8246-1008](https://orcid.org/0000-0002-8246-1008)
+- Rubén Peña · ORCID: [0000-0002-4828-0932](https://orcid.org/0000-0002-4828-0932)
 - Mikel Sanz · ORCID: [0000-0003-1615-9035](https://orcid.org/0000-0003-1615-9035)
